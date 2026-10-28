@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --background: #0a0a0c;
+    --foreground: #ffffff;
+    --evolve-yellow: #FFDC47;
+    --evolve-magenta: #DF0586;
+    --evolve-purple: #7A3EE8;
+    --evolve-card: #141418;
+    --evolve-border: #272730;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0e0e12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2b2b36;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #FFDC47;
+}
+
+/* Evolve Signature Sunray Burst */
+.evolve-sunburst {
+  background: repeating-conic-gradient(
+    from 0deg,
+    #FFDC47 0deg 15deg,
+    #F5D135 15deg 30deg
+  );
+}
+
+.evolve-sunburst-subtle {
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 220, 71, 0.07) 0deg 15deg,
+    transparent 15deg 30deg
+  );
+}
+
+/* Neo-brutalist / Evolve Offset Shadows */
+.shadow-neo-black {
+  box-shadow: 4px 4px 0px #000000;
+}
+
+.shadow-neo-black-sm {
+  box-shadow: 2px 2px 0px #000000;
+}
+
+.shadow-neo-black-lg {
+  box-shadow: 6px 6px 0px #000000;
+}
+
+.shadow-neo-yellow {
+  box-shadow: 4px 4px 0px #FFDC47;
+}
+
+.shadow-neo-yellow-sm {
+  box-shadow: 2px 2px 0px #FFDC47;
+}
+
+.shadow-neo-magenta {
+  box-shadow: 4px 4px 0px #DF0586;
+}
+
+.shadow-neo-purple {
+  box-shadow: 4px 4px 0px #7A3EE8;
+}
+
+/* Continuous Marquee Animation */
+@keyframes marquee-scroll {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll 24s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* Interactive Card & Button press */
+.evolve-pressable {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.evolve-pressable:hover {
+  transform: translateY(-2px);
+}
+
+.evolve-pressable:active {
+  transform: translateY(1px);
+}
+
+/* Glass & Glow */
+.evolve-card-dark {
+  background-color: #141418;
+  border: 1px solid #272730;
+}
+
+.evolve-glow-yellow {
+  box-shadow: 0 0 25px rgba(255, 220, 71, 0.25);
+}
+
+.evolve-glow-magenta {
+  box-shadow: 0 0 25px rgba(223, 5, 134, 0.35);
+}
