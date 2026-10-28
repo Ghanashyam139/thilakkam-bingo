@@ -235,7 +235,29 @@ export function initDB() {
       FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
     );
+
+    CREATE TABLE IF NOT EXISTS used_captchas (
+      id TEXT PRIMARY KEY,
+      used_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS signup_rate_limits (
+      ip TEXT NOT NULL,
+      timestamp INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
+
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_used_captchas_used_at ON used_captchas(used_at);`);
+  } catch (_) {}
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_signup_rate_limits_ip_time ON signup_rate_limits(ip, timestamp);`);
+  } catch (_) {}
 
   // Run migrations safely for existing databases
   try {
@@ -330,6 +352,9 @@ export function signUpPlayer(
 
   if (!cleanEmail) {
     throw new Error('Email is required.');
+  }
+  if (!cleanEmail.endsWith('@confianzit.com') || cleanEmail.indexOf('@') <= 0) {
+    throw new Error("Email addresses outside the organization won't be allowed. Please use your @confianzit.com email.");
   }
   if (!cleanNickname) {
     throw new Error('Please choose or enter a nickname.');
@@ -441,6 +466,48 @@ export function loginPlayer(email: string, password: string): { player: Player; 
   const grid = getPlayerGrid(row.id);
 
   return { player, grid };
+}
+
+export function deletePlayer(playerId: string): { success: boolean; email?: string; nickname?: string } {
+  const db = getDB();
+  const player = db.prepare('SELECT id, email, nickname FROM players WHERE id = ?').get(playerId) as { id: string; email?: string; nickname?: string } | undefined;
+  if (!player) {
+    throw new Error('Player not found.');
+  }
+
+  const deleteTx = db.transaction(() => {
+    db.prepare('DELETE FROM player_grids WHERE player_id = ?').run(playerId);
+    db.prepare('DELETE FROM players WHERE id = ?').run(playerId);
+  });
+
+  deleteTx();
+
+  return {
+    success: true,
+    email: player.email,
+    nickname: player.nickname
+  };
+}
+
+export function resetPlayerPassword(playerId: string, newPassword: string): { success: boolean; email?: string; nickname?: string } {
+  const db = getDB();
+  const player = db.prepare('SELECT id, email, nickname FROM players WHERE id = ?').get(playerId) as { id: string; email?: string; nickname?: string } | undefined;
+  if (!player) {
+    throw new Error('Player not found.');
+  }
+
+  if (!newPassword || newPassword.length < 4) {
+    throw new Error('Password must be at least 4 characters long.');
+  }
+
+  const passwordHash = hashPassword(newPassword);
+  db.prepare('UPDATE players SET password_hash = ? WHERE id = ?').run(passwordHash, playerId);
+
+  return {
+    success: true,
+    email: player.email,
+    nickname: player.nickname
+  };
 }
 
 export function registerPlayer(name: string, department: string = ''): Player {

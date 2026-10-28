@@ -54,7 +54,29 @@ db.exec(`
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
   );
+
+  CREATE TABLE IF NOT EXISTS used_captchas (
+    id TEXT PRIMARY KEY,
+    used_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS signup_rate_limits (
+    ip TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_used_captchas_used_at ON used_captchas(used_at);`);
+} catch (_) {}
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_signup_rate_limits_ip_time ON signup_rate_limits(ip, timestamp);`);
+} catch (_) {}
 
 try {
   db.exec(`ALTER TABLE players ADD COLUMN email TEXT;`);

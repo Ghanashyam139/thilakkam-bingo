@@ -23,6 +23,8 @@ import {
   ArrowRight,
   Smile,
   RefreshCw,
+  RotateCw,
+  ShieldCheck,
   Check,
   Flame,
   Zap,
@@ -56,6 +58,12 @@ export default function PlayerPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Captcha State for Signup
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaDataUrl, setCaptchaDataUrl] = useState('');
+  const [captchaInput, setCaptchaInput] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
 
   // Nickname State
   const [nickname, setNickname] = useState('');
@@ -132,11 +140,36 @@ export default function PlayerPage() {
     }
   };
 
-  useEffect(() => {
-    if (authMode === 'signup' && nicknameSuggestions.length === 0) {
-      fetchNicknameSuggestions();
+  const fetchCaptcha = async () => {
+    setCaptchaLoading(true);
+    try {
+      const res = await fetch('/api/auth/captcha', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setCaptchaToken(data.token || '');
+        setCaptchaDataUrl(data.svgDataUrl || '');
+        setCaptchaInput('');
+      } else {
+        addToast('Failed to load security captcha. Please tap New Code.', 'error');
+      }
+    } catch (err) {
+      console.error('Error fetching captcha:', err);
+      addToast('Network error loading captcha', 'error');
+    } finally {
+      setCaptchaLoading(false);
     }
-  }, [authMode, nicknameSuggestions.length]);
+  };
+
+  useEffect(() => {
+    if (authMode === 'signup') {
+      if (!captchaToken) {
+        fetchCaptcha();
+      }
+      if (nicknameSuggestions.length === 0) {
+        fetchNicknameSuggestions();
+      }
+    }
+  }, [authMode, captchaToken, nicknameSuggestions.length]);
 
   const checkNicknameAvailability = async (name: string) => {
     const clean = name.trim();
@@ -284,10 +317,19 @@ export default function PlayerPage() {
       }
     });
 
+    socket.on('force-logout', (data: { message?: string }) => {
+      localStorage.removeItem('photo_bingo_player_id');
+      setPlayer(null);
+      setGrid([]);
+      setSelectedCell(null);
+      addToast(data?.message || 'Your account was reset by an administrator.', 'info');
+    });
+
     return () => {
       socket.off('connect');
       socket.off('disconnect');
       socket.off('grid-update');
+      socket.off('force-logout');
       socket.disconnect();
     };
   }, [player]);
@@ -342,6 +384,11 @@ export default function PlayerPage() {
       addToast('Please enter both your email and password', 'error');
       return;
     }
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.endsWith('@confianzit.com') || cleanEmail.indexOf('@') <= 0) {
+      addToast("Email addresses outside the organization won't be allowed. Please use your @confianzit.com email.", 'error');
+      return;
+    }
     if (!nickname.trim()) {
       addToast('Please choose a creative nickname', 'error');
       return;
@@ -354,6 +401,15 @@ export default function PlayerPage() {
       addToast('Password must be at least 4 characters', 'error');
       return;
     }
+    if (!captchaInput.trim()) {
+      addToast('Please enter the security verification captcha', 'error');
+      return;
+    }
+    if (!captchaToken) {
+      addToast('Security captcha is still loading. Please wait...', 'info');
+      fetchCaptcha();
+      return;
+    }
     setAuthLoading(true);
 
     try {
@@ -363,7 +419,9 @@ export default function PlayerPage() {
         body: JSON.stringify({
           email: email.trim(),
           password,
-          nickname: nickname.trim()
+          nickname: nickname.trim(),
+          captchaToken,
+          captchaInput: captchaInput.trim()
         })
       });
 
@@ -375,8 +433,11 @@ export default function PlayerPage() {
         addToast(`Welcome to the Quest, ${data.player.nickname || data.player.name}! ⚡`, 'success');
         setPassword('');
         setNickname('');
+        setCaptchaInput('');
       } else {
         addToast(data.error || 'Registration failed', 'error');
+        // Refresh captcha on any failed attempt to prevent reuse/replay
+        fetchCaptcha();
         if (data.error && data.error.toLowerCase().includes('nickname')) {
           setNicknameStatus('taken');
           fetchNicknameSuggestions();
@@ -385,6 +446,7 @@ export default function PlayerPage() {
     } catch (err) {
       console.error(err);
       addToast('Network error during registration', 'error');
+      fetchCaptcha();
     } finally {
       setAuthLoading(false);
     }
@@ -677,7 +739,7 @@ export default function PlayerPage() {
                   <input
                     type="email"
                     required
-                    placeholder="name@company.com"
+                    placeholder="name@confianzit.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3.5 rounded-2xl bg-[#0B0B0E] border-2 border-[#2A2A38] focus:border-[#FFDC47] text-white placeholder-slate-500 outline-none font-medium text-sm transition-all shadow-inner"
@@ -814,13 +876,18 @@ export default function PlayerPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-[#FFDC47]" /> Email Address
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-[#FFDC47]" /> Company Email
+                    </label>
+                    <span className="text-[10px] font-extrabold text-[#FFDC47] bg-[#FFDC47]/10 px-2 py-0.5 rounded-full border border-[#FFDC47]/30">
+                      @confianzit.com only
+                    </span>
+                  </div>
                   <input
                     type="email"
                     required
-                    placeholder="name@company.com"
+                    placeholder="name@confianzit.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3.5 rounded-2xl bg-[#0B0B0E] border-2 border-[#2A2A38] focus:border-[#FFDC47] text-white placeholder-slate-500 outline-none font-medium text-sm transition-all shadow-inner"
@@ -849,6 +916,71 @@ export default function PlayerPage() {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                </div>
+
+                {/* Anti-Bot Security Captcha */}
+                <div className="space-y-2.5 bg-[#101017] p-3.5 rounded-2xl border-2 border-[#262638] shadow-inner">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-extrabold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#00F0FF]" /> Anti-Bot Verification
+                    </label>
+                    <button
+                      type="button"
+                      onClick={fetchCaptcha}
+                      disabled={captchaLoading}
+                      title="Generate a new captcha code"
+                      className="text-[11px] font-bold text-[#00F0FF] hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50 transition-colors"
+                    >
+                      <RotateCw className={`w-3 h-3 ${captchaLoading ? 'animate-spin' : ''}`} />
+                      <span>New Code</span>
+                    </button>
+                  </div>
+
+                  {/* Visual Captcha Image Container */}
+                  <div className="w-full bg-[#08080C] rounded-xl border border-[#222232] p-2 flex items-center justify-center min-h-[58px] relative overflow-hidden select-none">
+                    {captchaLoading ? (
+                      <div className="flex items-center gap-2 text-slate-400 text-xs py-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-[#00F0FF]" />
+                        <span>Generating captcha...</span>
+                      </div>
+                    ) : captchaDataUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={captchaDataUrl}
+                        alt="Security verification code"
+                        className="h-12 w-auto max-w-full object-contain pointer-events-none select-none drop-shadow"
+                        draggable={false}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={fetchCaptcha}
+                        className="text-xs text-[#00F0FF] font-bold hover:underline py-2"
+                      >
+                        Tap to load captcha
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Input Field */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={10}
+                      placeholder="Type characters & symbols above"
+                      value={captchaInput}
+                      onChange={(e) => setCaptchaInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-[#08080C] border-2 border-[#262638] focus:border-[#00F0FF] text-white placeholder-slate-500 outline-none font-mono font-bold tracking-widest text-center text-base transition-all shadow-inner"
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-1">
+                    <span>Includes numbers, letters & symbols (e.g. #, @, ?, *, !)</span>
+                  </p>
                 </div>
 
                 <button

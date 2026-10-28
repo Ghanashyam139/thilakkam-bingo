@@ -31,7 +31,11 @@ import {
   ExternalLink,
   ArrowLeft,
   HelpCircle,
-  MapPin
+  MapPin,
+  KeyRound,
+  Trash2,
+  UserX,
+  AlertTriangle
 } from 'lucide-react';
 import type { Player, PendingSubmission, GridCell } from '@/lib/db';
 
@@ -55,6 +59,13 @@ export default function AdminPage() {
   // Tab State
   const [leaderboardTab, setLeaderboardTab] = useState<'top10' | 'all'>('top10');
   const [showTop10Modal, setShowTop10Modal] = useState(false);
+
+  // Admin Account Reset & Recovery State
+  const [targetAccountPlayer, setTargetAccountPlayer] = useState<Player | null>(null);
+  const [accountActionModal, setAccountActionModal] = useState<'delete' | 'reset_password' | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('Confianz@2026');
+  const [accountActionLoading, setAccountActionLoading] = useState(false);
+  const [accountActionFeedback, setAccountActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const selectedPlayerRef = useRef<Player | null>(null);
   useEffect(() => {
@@ -253,6 +264,77 @@ export default function AdminPage() {
       alert('Failed to submit action. Check console for details.');
     } finally {
       setProcessingId(null);
+    }
+  };
+
+  const handleOpenDeleteAccountModal = (player: Player, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setTargetAccountPlayer(player);
+    setAccountActionFeedback(null);
+    setAccountActionModal('delete');
+  };
+
+  const handleOpenResetPasswordModal = (player: Player, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setTargetAccountPlayer(player);
+    setNewPasswordInput('Confianz@2026');
+    setAccountActionFeedback(null);
+    setAccountActionModal('reset_password');
+  };
+
+  const handleExecuteAccountAction = async () => {
+    if (!targetAccountPlayer || !accountActionModal) return;
+    setAccountActionLoading(true);
+    setAccountActionFeedback(null);
+
+    try {
+      const res = await fetch('/api/admin/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: accountActionModal,
+          playerId: targetAccountPlayer.id,
+          newPassword: newPasswordInput.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        if (accountActionModal === 'delete') {
+          setLeaderboard((prev) => prev.filter((p) => p.id !== targetAccountPlayer.id));
+          if (selectedPlayer?.id === targetAccountPlayer.id) {
+            setSelectedPlayer(null);
+            setPlayerGrid([]);
+          }
+          setAccountActionFeedback({
+            type: 'success',
+            message: `Account released! ${targetAccountPlayer.email || targetAccountPlayer.nickname} has been deleted and can now be registered again.`
+          });
+          setTimeout(() => {
+            setAccountActionModal(null);
+            setTargetAccountPlayer(null);
+            setAccountActionFeedback(null);
+          }, 1800);
+        } else if (accountActionModal === 'reset_password') {
+          setAccountActionFeedback({
+            type: 'success',
+            message: `Password reset successfully! Temporary password: ${data.tempPassword}`
+          });
+        }
+      } else {
+        setAccountActionFeedback({
+          type: 'error',
+          message: data.error || 'Failed to complete account action'
+        });
+      }
+    } catch (err) {
+      console.error('Error executing account action:', err);
+      setAccountActionFeedback({
+        type: 'error',
+        message: 'Network error communicating with server'
+      });
+    } finally {
+      setAccountActionLoading(false);
     }
   };
 
@@ -727,9 +809,27 @@ export default function AdminPage() {
                           </div>
                         </div>
 
-                        <span className="text-xs font-black text-[#FFDC47] bg-[#22222E] px-2.5 py-1 rounded-full">
-                          {p.bingo_score} Lines
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-xs font-black text-[#FFDC47] bg-[#22222E] px-2.5 py-1 rounded-full">
+                            {p.bingo_score}L
+                          </span>
+                          <button
+                            type="button"
+                            title="Reset Player Password"
+                            onClick={(e) => handleOpenResetPasswordModal(p, e)}
+                            className="p-1.5 rounded-lg bg-[#181822] hover:bg-[#2A2A38] text-slate-300 hover:text-[#FFDC47] border border-[#2D2D3E] transition-all cursor-pointer"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Release Email / Delete Account"
+                            onClick={(e) => handleOpenDeleteAccountModal(p, e)}
+                            className="p-1.5 rounded-lg bg-[#181822] hover:bg-[#EF4444] text-slate-300 hover:text-white border border-[#2D2D3E] transition-all cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })
@@ -851,6 +951,38 @@ export default function AdminPage() {
                   <p className="text-center text-xs text-slate-400 font-bold">
                     Click any tile to inspect photo or perform approval/rejection.
                   </p>
+
+                  {/* Account Security & Reset Section */}
+                  <div className="pt-3 border-t border-[#262638] flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="text-left w-full sm:w-auto">
+                      <p className="text-[11px] font-black text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5 text-[#FFDC47]" /> Account Actions
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Reset password or release email for fresh registration.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenResetPasswordModal(selectedPlayer, e)}
+                        className="flex-1 sm:flex-initial px-3.5 py-2 bg-[#1C1C28] hover:bg-[#282838] text-white border border-[#3A3A4E] rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                      >
+                        <KeyRound className="w-3.5 h-3.5 text-[#FFDC47]" />
+                        <span>Reset Password</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenDeleteAccountModal(selectedPlayer, e)}
+                        className="flex-1 sm:flex-initial px-3.5 py-2 bg-[#EF4444]/15 hover:bg-[#EF4444] text-[#EF4444] hover:text-white border border-[#EF4444]/40 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Release Email</span>
+                      </button>
+                    </div>
+                  </div>
                 </>
               )}
             </div>
@@ -960,6 +1092,174 @@ export default function AdminPage() {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: RESET PASSWORD */}
+      {accountActionModal === 'reset_password' && targetAccountPlayer && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#141418] border-2 border-black rounded-[28px] shadow-neo-yellow overflow-hidden animate-slide-up relative">
+            <div className="p-5 pb-4 bg-[#FFDC47] text-black border-b-2 border-black flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-black text-[#FFDC47] flex items-center justify-center">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <h3 className="text-xl font-black text-black">Reset Player Password</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAccountActionModal(null)}
+                className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center cursor-pointer shadow-sm"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-[#0B0B0E] p-3.5 rounded-2xl border border-[#272738]">
+                <p className="text-xs font-bold text-slate-300">Player: <span className="text-white font-black">{targetAccountPlayer.nickname || targetAccountPlayer.name}</span></p>
+                <p className="text-xs font-bold text-slate-400 mt-0.5">Email: <span className="text-[#FFDC47] font-bold">{targetAccountPlayer.email}</span></p>
+                {targetAccountPlayer.department && (
+                  <p className="text-[11px] text-slate-400 mt-0.5">Dept: <span className="text-slate-200">{targetAccountPlayer.department}</span></p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-300 uppercase tracking-wider">
+                  New Temporary Password
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="Enter temporary password"
+                  className="w-full px-4 py-3 rounded-xl bg-[#0B0B0E] border-2 border-[#262638] focus:border-[#FFDC47] text-white font-mono text-sm outline-none"
+                />
+                <p className="text-[10px] text-slate-400">
+                  Share this temporary password with the contestant so they can log in immediately.
+                </p>
+              </div>
+
+              {accountActionFeedback && (
+                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  accountActionFeedback.type === 'success'
+                    ? 'bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30'
+                    : 'bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30'
+                }`}>
+                  {accountActionFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                  <span>{accountActionFeedback.message}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAccountActionModal(null)}
+                  disabled={accountActionLoading}
+                  className="flex-1 py-3 rounded-full bg-[#1C1C24] hover:bg-[#252530] text-slate-300 font-bold text-xs cursor-pointer transition-all border border-[#2D2D3E]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteAccountAction}
+                  disabled={accountActionLoading || !newPasswordInput.trim()}
+                  className="flex-1 py-3 rounded-full bg-[#FFDC47] hover:bg-[#ffe366] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-neo-black-sm cursor-pointer transition-all disabled:opacity-50"
+                >
+                  {accountActionLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>Set Password</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DELETE / RELEASE ACCOUNT */}
+      {accountActionModal === 'delete' && targetAccountPlayer && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#141418] border-2 border-black rounded-[28px] shadow-neo-yellow overflow-hidden animate-slide-up relative">
+            <div className="p-5 pb-4 bg-[#EF4444] text-white border-b-2 border-black flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-black text-[#EF4444] flex items-center justify-center">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <h3 className="text-xl font-black text-white">Release / Delete Account</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAccountActionModal(null)}
+                className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center cursor-pointer shadow-sm"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-[#1C1215] border border-[#EF4444]/30 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-[#EF4444] text-xs font-black uppercase tracking-wider">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>Permanent Account Release</span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  You are about to delete the registration for <strong className="text-white">{targetAccountPlayer.nickname || targetAccountPlayer.name}</strong> (<span className="text-[#FFDC47]">{targetAccountPlayer.email}</span>).
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  This will wipe this board's progress and <strong className="text-white">immediately release this email address</strong> so the rightful employee can sign up fresh.
+                </p>
+              </div>
+
+              {accountActionFeedback && (
+                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  accountActionFeedback.type === 'success'
+                    ? 'bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30'
+                    : 'bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30'
+                }`}>
+                  {accountActionFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                  <span>{accountActionFeedback.message}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAccountActionModal(null)}
+                  disabled={accountActionLoading}
+                  className="flex-1 py-3 rounded-full bg-[#1C1C24] hover:bg-[#252530] text-slate-300 font-bold text-xs cursor-pointer transition-all border border-[#2D2D3E]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteAccountAction}
+                  disabled={accountActionLoading}
+                  className="flex-1 py-3 rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-neo-black-sm cursor-pointer transition-all disabled:opacity-50"
+                >
+                  {accountActionLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Yes, Release Email</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
