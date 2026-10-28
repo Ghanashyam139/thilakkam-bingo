@@ -529,7 +529,7 @@ export default function PlayerPage() {
           ⚄
         </div>
         <p className="mt-6 text-sm font-extrabold tracking-widest text-[#FFDC47] uppercase">
-          Loading Thilakkam Bingo...
+          Loading Thilakkam Quest...
         </p>
       </div>
     );
@@ -570,10 +570,7 @@ export default function PlayerPage() {
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="font-extrabold text-xl tracking-tight text-white">thilakkam</span>
-              <span className="font-extrabold text-xl tracking-tight text-[#FFDC47]">bingo</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-[#DF0586] ml-1 bg-[#DF0586]/10 px-2 py-0.5 rounded-full border border-[#DF0586]/30 hidden sm:inline-block">
-                Quest
-              </span>
+              <span className="font-extrabold text-xl tracking-tight text-[#FFDC47]">quest</span>
             </div>
           </Link>
 
@@ -604,13 +601,13 @@ export default function PlayerPage() {
       {/* CONTINUOUS MARQUEE TICKER (Signature Evolve vibrant strip) */}
       <div className="bg-[#7A3EE8] text-[#FFDC47] py-2 overflow-hidden border-y-2 border-black select-none font-extrabold text-xs tracking-wider uppercase">
         <div className="animate-marquee whitespace-nowrap flex items-center gap-8">
-          <span>✦ THILAKKAM BINGO QUEST ✦</span>
+          <span>✦ THILAKKAM QUEST ✦</span>
           <span>⚡ CAPTURE THE MOMENTS</span>
           <span>★ 5-IN-A-ROW FOR BINGO</span>
           <span>⚡ COMPETE ON LIVE LEADERBOARD</span>
           <span>✦ THILAKKAM ANNUAL DAY 2026</span>
           <span>★ SNAP • UPLOAD • CONQUER</span>
-          <span>✦ THILAKKAM BINGO QUEST ✦</span>
+          <span>✦ THILAKKAM QUEST ✦</span>
           <span>⚡ CAPTURE THE MOMENTS</span>
           <span>★ 5-IN-A-ROW FOR BINGO</span>
           <span>⚡ COMPETE ON LIVE LEADERBOARD</span>
@@ -1127,7 +1124,7 @@ export default function PlayerPage() {
                   📜
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-white">How to Win Thilakkam Bingo</h3>
+                  <h3 className="text-xl font-black text-white">How to Win Thilakkam Quest</h3>
                   <p className="text-xs text-slate-400">Rules & guidelines for Thilakkam Annual Day</p>
                 </div>
               </div>

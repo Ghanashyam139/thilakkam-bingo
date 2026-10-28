@@ -335,7 +335,7 @@ export default function AdminPage() {
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
                 <h1 className="text-base sm:text-xl font-black tracking-tight text-white whitespace-nowrap">
-                  thilakkam <span className="text-[#FFDC47]">bingo</span>
+                  thilakkam <span className="text-[#FFDC47]">quest</span>
                 </h1>
                 <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-[#FFDC47] text-black px-2 sm:px-2.5 py-0.5 rounded-full border border-black shadow-neo-black-sm whitespace-nowrap">
                   Admin Console

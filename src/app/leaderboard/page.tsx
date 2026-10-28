@@ -93,7 +93,7 @@ export default function BigScreenLeaderboard() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-                    thilakkam <span className="text-[#FFDC47]">bingo</span>
+                    thilakkam <span className="text-[#FFDC47]">quest</span>
                   </h1>
                   <span className="text-[10px] font-black uppercase tracking-widest bg-[#DF0586] text-white px-2.5 py-0.5 rounded-full border border-black shadow-neo-black-sm">
                     TV Broadcaster
@@ -341,7 +341,7 @@ export default function BigScreenLeaderboard() {
 
       {/* Footer */}
       <footer className="bg-[#0A0A0C] border-t-2 border-black py-4 px-6 text-center text-xs text-slate-500 font-semibold">
-        Thilakkam Bingo Live Tournament Broadcast • Built for Thilakkam Annual Day Challenge
+        Thilakkam Quest Live Tournament Broadcast • Built for Thilakkam Annual Day Challenge
       </footer>
     </div>
   );

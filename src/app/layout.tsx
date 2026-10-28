@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Thilakkam Bingo — Capture Moments & Win Together",
+  title: "Thilakkam Quest — Capture Moments & Win Together",
   description: "An energetic challenge & scavenger hunt ecosystem for Thilakkam Annual Day. Complete challenges, answer questions, verify tiles, score bingos, and conquer the leaderboard.",
 };
 
