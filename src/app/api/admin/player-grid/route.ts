@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlayer, getPlayerGrid } from '@/lib/db';
+import { isAuthorizedAdmin } from '@/lib/adminAuth';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
+    if (!isAuthorizedAdmin(req)) {
+      return NextResponse.json({ error: 'Unauthorized. Admin login required.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const playerId = searchParams.get('id');
 

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateTileStatus, getLeaderboard } from '@/lib/db';
+import { isAuthorizedAdmin } from '@/lib/adminAuth';
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isAuthorizedAdmin(req)) {
+      return NextResponse.json({ error: 'Unauthorized. Admin login required.' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { playerId, tileIndex, status, rejectionReason } = body;
 

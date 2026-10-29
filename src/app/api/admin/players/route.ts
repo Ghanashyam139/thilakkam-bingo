@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deletePlayer, resetPlayerPassword, getLeaderboard } from '@/lib/db';
+import { isAuthorizedAdmin } from '@/lib/adminAuth';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isAuthorizedAdmin(req)) {
+      return NextResponse.json({ error: 'Unauthorized. Admin login required.' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { action, playerId, newPassword } = body;
 

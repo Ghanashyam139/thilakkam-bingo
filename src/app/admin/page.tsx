@@ -18,6 +18,7 @@ import {
   Search,
   Grid,
   Eye,
+  EyeOff,
   Star,
   CheckCircle2,
   Mail,
@@ -35,7 +36,11 @@ import {
   KeyRound,
   Trash2,
   UserX,
-  AlertTriangle
+  AlertTriangle,
+  Lock,
+  User,
+  LogOut,
+  ShieldCheck
 } from 'lucide-react';
 import type { Player, PendingSubmission, GridCell } from '@/lib/db';
 
@@ -67,34 +72,121 @@ export default function AdminPage() {
   const [accountActionLoading, setAccountActionLoading] = useState(false);
   const [accountActionFeedback, setAccountActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Authentication State
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const selectedPlayerRef = useRef<Player | null>(null);
   useEffect(() => {
     selectedPlayerRef.current = selectedPlayer;
   }, [selectedPlayer]);
 
-  // Fetch initial dashboard state
+  const initDashboard = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/init');
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissions(data.pendingSubmissions || []);
+        setLeaderboard(data.leaderboard || []);
+      } else if (res.status === 401) {
+        setIsAuthenticated(false);
+      } else {
+        console.error('Failed to fetch dashboard data');
+      }
+    } catch (err) {
+      console.error('Error fetching dashboard init:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Check existing session on mount
   useEffect(() => {
-    async function initDashboard() {
+    async function checkAuth() {
       try {
-        const res = await fetch('/api/admin/init');
+        const res = await fetch('/api/admin/check-auth');
         if (res.ok) {
           const data = await res.json();
-          setSubmissions(data.pendingSubmissions || []);
-          setLeaderboard(data.leaderboard || []);
+          if (data.authenticated) {
+            setIsAuthenticated(true);
+            await initDashboard();
+          } else {
+            setIsAuthenticated(false);
+            setLoading(false);
+          }
         } else {
-          console.error('Failed to fetch dashboard data');
+          setIsAuthenticated(false);
+          setLoading(false);
         }
       } catch (err) {
-        console.error('Error fetching dashboard init:', err);
-      } finally {
+        console.error('Error checking admin auth:', err);
+        setIsAuthenticated(false);
         setLoading(false);
+      } finally {
+        setAuthChecking(false);
       }
     }
-    initDashboard();
+    checkAuth();
   }, []);
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminUsername.trim() || !adminPassword) {
+      setAuthError('Please enter both username and password.');
+      return;
+    }
+    setAuthSubmitting(true);
+    setAuthError(null);
+
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: adminUsername.trim(),
+          password: adminPassword
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setIsAuthenticated(true);
+        setAdminPassword('');
+        setAuthError(null);
+        await initDashboard();
+      } else {
+        setAuthError(data.error || 'Invalid credentials. Access denied.');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setAuthError('Network error connecting to login service.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    setIsAuthenticated(false);
+    setSubmissions([]);
+    setLeaderboard([]);
+    setSelectedPlayer(null);
+  };
 
   // Socket listener for real-time updates
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const socket = getSocket();
     if (!socket) return;
 
@@ -164,7 +256,7 @@ export default function AdminPage() {
       socket.off('submission-handled');
       socket.disconnect();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const handleInspectUserById = async (playerId: string) => {
     setLoadingGrid(true);
@@ -364,15 +456,148 @@ export default function AdminPage() {
     );
   });
 
-  if (loading) {
+  if (authChecking || (loading && isAuthenticated)) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[#0A0A0C] text-white min-h-screen">
         <div className="w-16 h-16 rounded-2xl bg-[#FFDC47] text-black flex items-center justify-center shadow-neo-yellow animate-bounce">
           <Dices className="w-8 h-8 text-black" />
         </div>
         <p className="mt-6 text-sm font-extrabold tracking-widest text-[#FFDC47] uppercase">
-          Booting Admin Console...
+          {authChecking ? 'Verifying Admin Session...' : 'Booting Admin Console...'}
         </p>
+      </div>
+    );
+  }
+
+  // ADMIN LOGIN SCREEN
+  if (!isAuthenticated) {
+    return (
+      <div className="flex-1 flex flex-col bg-[#0A0A0C] text-white min-h-screen selection:bg-[#FFDC47] selection:text-black relative overflow-hidden">
+        {/* Subtle Background Glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full evolve-sunburst-subtle pointer-events-none opacity-40" />
+
+        {/* Minimal Header */}
+        <header className="p-4 sm:p-6 flex items-center justify-between max-w-6xl mx-auto w-full z-10">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#FFDC47] text-black flex items-center justify-center shadow-neo-black-sm">
+              <Dices className="w-5 h-5 sm:w-6 sm:h-6 text-black" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm sm:text-base font-black tracking-tight text-white">
+                  thilakkam <span className="text-[#FFDC47]">quest</span>
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-wider bg-black text-[#FFDC47] border border-[#2B2B38] px-2 py-0.5 rounded-full">
+                  Admin Gateway
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-semibold">Organizing Committee Portal</p>
+            </div>
+          </div>
+
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#181822] hover:bg-[#222230] border border-[#2D2D3E] text-slate-300 hover:text-white text-xs font-bold transition-all shadow-sm"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Participant View</span>
+          </Link>
+        </header>
+
+        {/* Centered Login Card */}
+        <div className="flex-1 flex items-center justify-center px-4 py-8 z-10">
+          <div className="w-full max-w-md bg-[#141418] border-2 border-black rounded-[32px] p-6 sm:p-8 shadow-neo-yellow relative overflow-hidden">
+            
+            {/* Header Badge & Title */}
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFDC47] text-black font-extrabold text-[10px] tracking-wider uppercase mb-3 shadow-neo-black-sm">
+                <ShieldCheck className="w-3.5 h-3.5 text-black" />
+                Authorized Arbiters Only
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                Control Room Login
+              </h2>
+              <p className="text-xs text-slate-400 font-medium mt-1.5">
+                Enter your administrative credentials to review challenges and moderate contestant boards.
+              </p>
+            </div>
+
+            {/* Error Message */}
+            {authError && (
+              <div className="mb-5 p-3.5 rounded-2xl bg-[#EF4444]/15 border-2 border-[#EF4444]/40 text-[#EF4444] text-xs font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            {/* Login Form */}
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-[#FFDC47]" /> Admin Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                  placeholder="Enter admin username"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-2xl bg-[#0B0B0E] border-2 border-[#2A2A38] focus:border-[#FFDC47] text-white placeholder-slate-600 outline-none font-medium text-sm transition-all shadow-inner"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-[#DF0586]" /> Admin Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showAdminPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    placeholder="Enter admin password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    className="w-full px-4 py-3.5 pr-11 rounded-2xl bg-[#0B0B0E] border-2 border-[#2A2A38] focus:border-[#FFDC47] text-white placeholder-slate-600 outline-none font-medium text-sm transition-all shadow-inner"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white"
+                  >
+                    {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={authSubmitting}
+                className="w-full mt-2 bg-[#FFDC47] hover:bg-[#ffe366] text-black font-extrabold py-4 px-6 rounded-full shadow-neo-black active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 text-sm"
+              >
+                {authSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-black" />
+                    <span>Authenticating...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4 text-black" />
+                    <span>Enter Control Room</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="mt-6 pt-4 border-t border-[#232330] text-center">
+              <p className="text-[10px] text-slate-500 font-medium">
+                Confianz Thilakkam Annual Day • Internal Operations Portal
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -446,6 +671,15 @@ export default function AdminPage() {
                 {socketConnected ? 'Live Feed' : 'Offline'}
               </span>
             </div>
+
+            <button
+              onClick={handleAdminLogout}
+              title="Sign Out of Admin Console"
+              className="flex items-center gap-1.5 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-[#1C1215] hover:bg-[#EF4444] text-[#EF4444] hover:text-white border-2 border-black text-xs font-black shadow-neo-black-sm transition-all cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Log Out</span>
+            </button>
           </div>
         </div>
       </header>
