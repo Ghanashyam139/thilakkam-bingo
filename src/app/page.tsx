@@ -40,6 +40,7 @@ import {
   Compass
 } from 'lucide-react';
 import type { Player, GridCell } from '@/lib/db';
+import { formatDateTime } from '@/lib/dateUtils';
 
 interface Toast {
   id: string;
@@ -261,6 +262,8 @@ export default function PlayerPage() {
       status: 'pending' | 'approved' | 'rejected';
       imagePath?: string;
       textAnswer?: string | null;
+      uploadedAt?: string | null;
+      approvedAt?: string | null;
       rejectionReason?: string;
       rejectionCount?: number;
       score: number;
@@ -274,6 +277,8 @@ export default function PlayerPage() {
               status: data.status,
               image_path: data.imagePath !== undefined ? data.imagePath : cell.image_path,
               text_answer: data.textAnswer !== undefined ? data.textAnswer : cell.text_answer,
+              uploaded_at: data.uploadedAt !== undefined ? data.uploadedAt : cell.uploaded_at,
+              approved_at: data.approvedAt !== undefined ? data.approvedAt : cell.approved_at,
               rejection_reason: data.rejectionReason !== undefined ? data.rejectionReason : cell.rejection_reason,
               rejection_count: data.rejectionCount !== undefined ? data.rejectionCount : (cell.rejection_count || 0)
             };
@@ -289,6 +294,8 @@ export default function PlayerPage() {
             status: data.status,
             image_path: data.imagePath !== undefined ? data.imagePath : prev.image_path,
             text_answer: data.textAnswer !== undefined ? data.textAnswer : prev.text_answer,
+            uploaded_at: data.uploadedAt !== undefined ? data.uploadedAt : prev.uploaded_at,
+            approved_at: data.approvedAt !== undefined ? data.approvedAt : prev.approved_at,
             rejection_reason: data.rejectionReason !== undefined ? data.rejectionReason : prev.rejection_reason,
             rejection_count: data.rejectionCount !== undefined ? data.rejectionCount : (prev.rejection_count || 0)
           };
@@ -524,6 +531,8 @@ export default function PlayerPage() {
         const newImagePath = data.imagePath || selectedCell.image_path;
         const newTextAnswer = data.textAnswer !== undefined ? data.textAnswer : (isQuestion ? textAnswer.trim() : selectedCell.text_answer);
 
+        const uploadedTime = data.uploadedAt || new Date().toISOString();
+
         setGrid((prevGrid) =>
           prevGrid.map((c) => {
             if (c.tile_index === selectedCell.tile_index) {
@@ -532,6 +541,8 @@ export default function PlayerPage() {
                 status: 'pending',
                 image_path: newImagePath,
                 text_answer: newTextAnswer,
+                uploaded_at: uploadedTime,
+                approved_at: null,
                 rejection_reason: null
               };
             }
@@ -539,39 +550,17 @@ export default function PlayerPage() {
           })
         );
 
-        setSelectedCell((prev) => {
-          if (prev && prev.tile_index === selectedCell.tile_index) {
-            return {
-              ...prev,
-              status: 'pending',
-              image_path: newImagePath,
-              text_answer: newTextAnswer,
-              rejection_reason: null
-            };
-          }
-          return null;
-        });
-
+        // Reset input states and close challenge modal
         setImageFile(null);
         setImagePreview(null);
+        setTextAnswer('');
+        setSelectedCell(null);
 
-        if (isQuestion) {
-          if (prevStatus === 'pending') {
-            addToast('Answer updated! Re-submitted for review. 🔄', 'info');
-          } else if (prevStatus === 'rejected') {
-            addToast('Retry answer submitted! Awaiting review (Final attempt). 🎯', 'info');
-          } else {
-            addToast('Answer submitted! Waiting for moderator approval. ⚡', 'info');
-          }
-        } else {
-          if (prevStatus === 'pending') {
-            addToast('Photo updated! Re-submitted for review. 🔄', 'info');
-          } else if (prevStatus === 'rejected') {
-            addToast('Retry photo uploaded! Awaiting review (Final attempt). 🎯', 'info');
-          } else {
-            addToast('Photo submitted! Waiting for moderator approval. ⚡', 'info');
-          }
-        }
+        // Show confirmation message
+        addToast(
+          'Submitted! Awaiting moderator verification. You can modify your submission before review.',
+          'info'
+        );
       } else {
         const errData = await res.json();
         addToast(errData.error || 'Submission failed', 'error');
@@ -1394,6 +1383,34 @@ export default function PlayerPage() {
                     </div>
                   </div>
 
+                  {/* Submitted & Approved Time Display */}
+                  {(selectedCell.uploaded_at || selectedCell.approved_at) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 rounded-2xl bg-[#0B0B0E] border-2 border-[#252532]">
+                      {selectedCell.uploaded_at && (
+                        <div className="flex items-center gap-2.5 text-xs">
+                          <div className="w-7 h-7 rounded-full bg-[#FFDC47]/10 border border-[#FFDC47]/30 flex items-center justify-center flex-shrink-0 text-[#FFDC47]">
+                            <Clock className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Submitted Time</span>
+                            <span className="text-xs font-black text-white truncate block">{formatDateTime(selectedCell.uploaded_at)}</span>
+                          </div>
+                        </div>
+                      )}
+                      {selectedCell.approved_at && (
+                        <div className="flex items-center gap-2.5 text-xs">
+                          <div className="w-7 h-7 rounded-full bg-[#10B981]/10 border border-[#10B981]/30 flex items-center justify-center flex-shrink-0 text-[#10B981]">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Approved Time</span>
+                            <span className="text-xs font-black text-[#10B981] truncate block">{formatDateTime(selectedCell.approved_at)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* LOCATION CLUE PHOTO CARD (Show when task has a clue image) */}
                   {selectedCell.clue_image && (
                     <div className="bg-[#0B0B0E] border-2 border-black rounded-[24px] p-4 shadow-neo-yellow relative overflow-hidden space-y-3">
@@ -1447,9 +1464,16 @@ export default function PlayerPage() {
                   {/* PENDING REVIEW STATE */}
                   {selectedCell.status === 'pending' && (
                     <div className="space-y-3.5">
-                      <div className="p-3 bg-[#FFDC47]/10 border-2 border-[#FFDC47] rounded-2xl text-[#FFDC47] text-xs font-bold flex items-center gap-2">
-                        <Clock className="w-4 h-4 flex-shrink-0" />
-                        <span>Submitted! Awaiting moderator verification. You can modify your submission before review.</span>
+                      <div className="p-3 bg-[#FFDC47]/10 border-2 border-[#FFDC47] rounded-2xl text-[#FFDC47] text-xs font-bold flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 flex-shrink-0" />
+                          <span>Submitted! Awaiting moderator verification. You can modify your submission before review.</span>
+                        </div>
+                        {selectedCell.uploaded_at && (
+                          <span className="text-[10px] text-black bg-[#FFDC47] font-black uppercase px-2.5 py-0.5 rounded-full flex-shrink-0 shadow-sm">
+                            {formatDateTime(selectedCell.uploaded_at)}
+                          </span>
+                        )}
                       </div>
 
                       {selectedCell.task_type === 'question' ? (
@@ -1662,9 +1686,16 @@ export default function PlayerPage() {
                   {/* APPROVED STATE */}
                   {selectedCell.status === 'approved' && (
                     <div className="space-y-3.5">
-                      <div className="p-3 bg-[#10B981]/15 border-2 border-[#10B981] rounded-2xl text-white text-xs font-bold flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-[#10B981] flex-shrink-0" />
-                        <span>Challenge verified by moderator! Star awarded to your board.</span>
+                      <div className="p-3 bg-[#10B981]/15 border-2 border-[#10B981] rounded-2xl text-white text-xs font-bold flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-[#10B981] flex-shrink-0" />
+                          <span>Challenge verified by moderator! Star awarded to your board.</span>
+                        </div>
+                        {selectedCell.approved_at && (
+                          <span className="text-[10px] text-[#10B981] bg-black/50 border border-[#10B981]/50 font-black uppercase px-2.5 py-0.5 rounded-full flex-shrink-0 shadow-sm">
+                            Approved: {formatDateTime(selectedCell.approved_at)}
+                          </span>
+                        )}
                       </div>
 
                       {selectedCell.task_type === 'question' ? (

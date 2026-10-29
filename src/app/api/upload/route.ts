@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
         image_path: updatedCell?.image_path || dbImagePath,
         text_answer: updatedCell?.text_answer || textAnswer || null,
         uploaded_at: updatedCell?.uploaded_at || new Date().toISOString(),
+        approved_at: null,
         rejection_count: updatedCell?.rejection_count || 0
       };
 
@@ -123,6 +124,8 @@ export async function POST(req: NextRequest) {
         status: 'pending',
         imagePath: updatedCell?.image_path || dbImagePath,
         textAnswer: updatedCell?.text_answer || textAnswer || null,
+        uploadedAt: updatedCell?.uploaded_at || new Date().toISOString(),
+        approvedAt: null,
         rejectionReason: null,
         rejectionCount: updatedCell?.rejection_count || 0,
         score: updatedPlayer.bingo_score,
@@ -134,6 +137,8 @@ export async function POST(req: NextRequest) {
       success: true,
       imagePath: updatedCell?.image_path || dbImagePath,
       textAnswer: updatedCell?.text_answer || textAnswer || null,
+      uploadedAt: updatedCell?.uploaded_at || new Date().toISOString(),
+      approvedAt: null,
       player: updatedPlayer
     });
   } catch (error: any) {

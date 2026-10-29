@@ -45,6 +45,7 @@ export interface GridCell {
   image_path: string | null;
   text_answer?: string | null;
   uploaded_at: string | null;
+  approved_at?: string | null;
   rejection_reason: string | null;
   rejection_count: number;
   // Joined fields
@@ -229,6 +230,7 @@ export function initDB() {
       status TEXT CHECK(status IN ('not_started', 'pending', 'approved', 'rejected')) NOT NULL DEFAULT 'not_started',
       image_path TEXT,
       uploaded_at TEXT,
+      approved_at TEXT,
       rejection_reason TEXT,
       rejection_count INTEGER DEFAULT 0,
       PRIMARY KEY (player_id, tile_index),
@@ -292,6 +294,12 @@ export function initDB() {
   } catch (_) {}
   try {
     db.exec(`ALTER TABLE tasks ADD COLUMN clue_image TEXT;`);
+  } catch (_) {}
+  try {
+    db.exec(`ALTER TABLE player_grids ADD COLUMN approved_at TEXT;`);
+  } catch (_) {}
+  try {
+    db.exec(`UPDATE player_grids SET approved_at = COALESCE(uploaded_at, datetime('now')) WHERE status = 'approved' AND approved_at IS NULL;`);
   } catch (_) {}
 
   // Sync / Populated Thilakkam Annual Day tasks
@@ -398,8 +406,8 @@ export function signUpPlayer(
 
   // Insert 25 grid entries (5x5 grid)
   const insertGridCell = db.prepare(`
-    INSERT INTO player_grids (player_id, tile_index, task_id, status, image_path, uploaded_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO player_grids (player_id, tile_index, task_id, status, image_path, uploaded_at, approved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const gridTransaction = db.transaction((pid: string) => {
@@ -407,10 +415,10 @@ export function signUpPlayer(
     for (let i = 0; i < 25; i++) {
       if (i === 12) {
         // Center FREE SPACE: pre-approved, no task_id, no image
-        insertGridCell.run(pid, i, null, 'approved', null, new Date().toISOString());
+        insertGridCell.run(pid, i, null, 'approved', null, now, now);
       } else {
         const task = shuffledTasks[taskIndex++];
-        insertGridCell.run(pid, i, task ? task.id : null, 'not_started', null, null);
+        insertGridCell.run(pid, i, task ? task.id : null, 'not_started', null, null, null);
       }
     }
   });
@@ -524,19 +532,20 @@ export function registerPlayer(name: string, department: string = ''): Player {
   const allTasks = db.prepare('SELECT id FROM tasks').all() as { id: number }[];
   const shuffledTasks = [...allTasks].sort(() => Math.random() - 0.5);
 
+  const nowIso = new Date().toISOString();
   const insertGridCell = db.prepare(`
-    INSERT INTO player_grids (player_id, tile_index, task_id, status, image_path, uploaded_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO player_grids (player_id, tile_index, task_id, status, image_path, uploaded_at, approved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const gridTransaction = db.transaction((pid: string) => {
     let taskIndex = 0;
     for (let i = 0; i < 25; i++) {
       if (i === 12) {
-        insertGridCell.run(pid, i, null, 'approved', null, new Date().toISOString());
+        insertGridCell.run(pid, i, null, 'approved', null, nowIso, nowIso);
       } else {
         const task = shuffledTasks[taskIndex++];
-        insertGridCell.run(pid, i, task ? task.id : null, 'not_started', null, null);
+        insertGridCell.run(pid, i, task ? task.id : null, 'not_started', null, null, null);
       }
     }
   });
@@ -588,6 +597,7 @@ export function updateTileStatus(
           image_path = COALESCE(?, image_path), 
           text_answer = COALESCE(?, text_answer),
           uploaded_at = ?, 
+          approved_at = NULL,
           rejection_reason = NULL
       WHERE player_id = ? AND tile_index = ?
     `);
@@ -595,14 +605,14 @@ export function updateTileStatus(
   } else if (status === 'approved') {
     const stmt = db.prepare(`
       UPDATE player_grids
-      SET status = ?, rejection_reason = NULL
+      SET status = ?, approved_at = ?, rejection_reason = NULL
       WHERE player_id = ? AND tile_index = ?
     `);
-    stmt.run(status, playerId, tileIndex);
+    stmt.run(status, new Date().toISOString(), playerId, tileIndex);
   } else if (status === 'rejected') {
     const stmt = db.prepare(`
       UPDATE player_grids
-      SET status = ?, rejection_reason = ?, rejection_count = COALESCE(rejection_count, 0) + 1
+      SET status = ?, approved_at = NULL, rejection_reason = ?, rejection_count = COALESCE(rejection_count, 0) + 1
       WHERE player_id = ? AND tile_index = ?
     `);
     stmt.run(status, rejectionReason || null, playerId, tileIndex);
@@ -684,6 +694,7 @@ export interface PendingSubmission {
   image_path?: string | null;
   text_answer?: string | null;
   uploaded_at: string;
+  approved_at?: string | null;
   rejection_count: number;
 }
 
@@ -704,6 +715,7 @@ export function getPendingSubmissions(): PendingSubmission[] {
       pg.image_path,
       pg.text_answer,
       pg.uploaded_at,
+      pg.approved_at,
       COALESCE(pg.rejection_count, 0) as rejection_count
     FROM player_grids pg
     JOIN players p ON pg.player_id = p.id
@@ -712,4 +724,50 @@ export function getPendingSubmissions(): PendingSubmission[] {
     ORDER BY pg.uploaded_at ASC
   `);
   return stmt.all() as PendingSubmission[];
+}
+
+export interface RejectedSubmission {
+  player_id: string;
+  player_name: string;
+  player_nickname?: string;
+  player_department: string;
+  tile_index: number;
+  task_id: number;
+  task_title: string;
+  task_description: string;
+  task_type?: 'photo' | 'question';
+  clue_image?: string | null;
+  image_path?: string | null;
+  text_answer?: string | null;
+  uploaded_at: string | null;
+  rejection_reason: string | null;
+  rejection_count: number;
+}
+
+export function getRejectedSubmissions(): RejectedSubmission[] {
+  const db = getDB();
+  const stmt = db.prepare(`
+    SELECT 
+      p.id as player_id,
+      p.name as player_name,
+      p.nickname as player_nickname,
+      p.department as player_department,
+      pg.tile_index,
+      pg.task_id,
+      t.title as task_title,
+      t.description as task_description,
+      COALESCE(t.task_type, 'photo') as task_type,
+      t.clue_image,
+      pg.image_path,
+      pg.text_answer,
+      pg.uploaded_at,
+      pg.rejection_reason,
+      COALESCE(pg.rejection_count, 0) as rejection_count
+    FROM player_grids pg
+    JOIN players p ON pg.player_id = p.id
+    JOIN tasks t ON pg.task_id = t.id
+    WHERE pg.status = 'rejected'
+    ORDER BY pg.uploaded_at DESC
+  `);
+  return stmt.all() as RejectedSubmission[];
 }

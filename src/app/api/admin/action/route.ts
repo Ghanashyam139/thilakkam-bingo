@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
         status,
         imagePath: updatedCell?.image_path,
         textAnswer: updatedCell?.text_answer,
+        uploadedAt: updatedCell?.uploaded_at,
+        approvedAt: updatedCell?.approved_at,
         rejectionReason: status === 'rejected' ? rejectionReason : null,
         rejectionCount: updatedCell?.rejection_count || 0,
         score: player.bingo_score,
@@ -56,17 +58,39 @@ export async function POST(req: NextRequest) {
       // 2. Broadcast updated leaderboard to all clients
       io.emit('leaderboard-update', leaderboard);
 
-      // 3. Broadcast to admins to remove this submission from the feed
+      // 3. Broadcast to admins to update submission queues
       io.emit('submission-handled', {
         playerId,
         tileIndex,
-        status
+        status,
+        uploadedAt: updatedCell?.uploaded_at,
+        approvedAt: updatedCell?.approved_at,
+        rejectionReason: status === 'rejected' ? rejectionReason : null,
+        rejectionCount: updatedCell?.rejection_count || 0,
+        cell: {
+          player_id: playerId,
+          player_name: player.nickname || player.name,
+          player_nickname: player.nickname,
+          player_department: player.department,
+          tile_index: tileIndex,
+          task_id: updatedCell?.task_id || 0,
+          task_title: updatedCell?.task_title || '',
+          task_description: updatedCell?.task_description || '',
+          task_type: updatedCell?.task_type || 'photo',
+          clue_image: updatedCell?.clue_image || null,
+          image_path: updatedCell?.image_path || null,
+          text_answer: updatedCell?.text_answer || null,
+          uploaded_at: updatedCell?.uploaded_at || null,
+          rejection_reason: status === 'rejected' ? rejectionReason : null,
+          rejection_count: updatedCell?.rejection_count || 0
+        }
       });
     }
 
     return NextResponse.json({
       success: true,
       player,
+      grid,
       leaderboard
     });
   } catch (error: any) {

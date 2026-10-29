@@ -48,6 +48,7 @@ db.exec(`
     status TEXT CHECK(status IN ('not_started', 'pending', 'approved', 'rejected')) NOT NULL DEFAULT 'not_started',
     image_path TEXT,
     uploaded_at TEXT,
+    approved_at TEXT,
     rejection_reason TEXT,
     rejection_count INTEGER DEFAULT 0,
     PRIMARY KEY (player_id, tile_index),
@@ -110,6 +111,12 @@ try {
 } catch (_) {}
 try {
   db.exec(`ALTER TABLE tasks ADD COLUMN clue_image TEXT;`);
+} catch (_) {}
+try {
+  db.exec(`ALTER TABLE player_grids ADD COLUMN approved_at TEXT;`);
+} catch (_) {}
+try {
+  db.exec(`UPDATE player_grids SET approved_at = COALESCE(uploaded_at, datetime('now')) WHERE status = 'approved' AND approved_at IS NULL;`);
 } catch (_) {}
 
 // Sync / Populate Thilakkam Annual Day tasks

@@ -42,10 +42,13 @@ import {
   LogOut,
   ShieldCheck
 } from 'lucide-react';
-import type { Player, PendingSubmission, GridCell } from '@/lib/db';
+import type { Player, PendingSubmission, RejectedSubmission, GridCell } from '@/lib/db';
+import { formatDateTime } from '@/lib/dateUtils';
 
 export default function AdminPage() {
   const [submissions, setSubmissions] = useState<PendingSubmission[]>([]);
+  const [rejectedSubmissions, setRejectedSubmissions] = useState<RejectedSubmission[]>([]);
+  const [feedTab, setFeedTab] = useState<'pending' | 'rejected'>('pending');
   const [leaderboard, setLeaderboard] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -93,6 +96,7 @@ export default function AdminPage() {
       if (res.ok) {
         const data = await res.json();
         setSubmissions(data.pendingSubmissions || []);
+        setRejectedSubmissions(data.rejectedSubmissions || []);
         setLeaderboard(data.leaderboard || []);
       } else if (res.status === 401) {
         setIsAuthenticated(false);
@@ -211,11 +215,16 @@ export default function AdminPage() {
         return [data, ...prev];
       });
 
+      // Remove from rejected if contestant retried
+      setRejectedSubmissions((prev) =>
+        prev.filter((s) => !(s.player_id === data.player_id && s.tile_index === data.tile_index))
+      );
+
       if (selectedPlayerRef.current && selectedPlayerRef.current.id === data.player_id) {
         setPlayerGrid((prev) =>
           prev.map((c) =>
             c.tile_index === data.tile_index
-              ? { ...c, status: 'pending', image_path: data.image_path || null, uploaded_at: data.uploaded_at }
+              ? { ...c, status: 'pending', image_path: data.image_path || null, text_answer: data.text_answer || null, uploaded_at: data.uploaded_at, approved_at: null, rejection_reason: null }
               : c
           )
         );
@@ -232,20 +241,52 @@ export default function AdminPage() {
       }
     });
 
-    socket.on('submission-handled', (data: { playerId: string; tileIndex: number; status: string }) => {
+    socket.on('submission-handled', (data: { playerId: string; tileIndex: number; status: string; uploadedAt?: string; approvedAt?: string; rejectionReason?: string | null; rejectionCount?: number; cell?: any }) => {
       setSubmissions((prev) =>
         prev.filter((s) => !(s.player_id === data.playerId && s.tile_index === data.tileIndex))
       );
+
+      if (data.status === 'rejected' && data.cell) {
+        setRejectedSubmissions((prev) => {
+          const filtered = prev.filter((s) => !(s.player_id === data.playerId && s.tile_index === data.tileIndex));
+          return [data.cell, ...filtered];
+        });
+      } else if (data.status === 'approved') {
+        setRejectedSubmissions((prev) =>
+          prev.filter((s) => !(s.player_id === data.playerId && s.tile_index === data.tileIndex))
+        );
+      }
 
       if (selectedPlayerRef.current && selectedPlayerRef.current.id === data.playerId) {
         setPlayerGrid((prev) =>
           prev.map((c) =>
             c.tile_index === data.tileIndex
-              ? { ...c, status: data.status as any }
+              ? { 
+                  ...c, 
+                  status: data.status as any,
+                  uploaded_at: data.uploadedAt !== undefined ? data.uploadedAt : c.uploaded_at,
+                  approved_at: data.status === 'approved' ? (data.approvedAt || new Date().toISOString()) : null,
+                  rejection_reason: data.status === 'rejected' ? (data.rejectionReason || null) : null,
+                  rejection_count: data.rejectionCount !== undefined ? data.rejectionCount : (c.rejection_count || 0)
+                }
               : c
           )
         );
       }
+
+      setInspectingCell((prev) => {
+        if (prev && selectedPlayerRef.current?.id === data.playerId && prev.tile_index === data.tileIndex) {
+          return {
+            ...prev,
+            status: data.status as any,
+            uploaded_at: data.uploadedAt !== undefined ? data.uploadedAt : prev.uploaded_at,
+            approved_at: data.status === 'approved' ? (data.approvedAt || new Date().toISOString()) : null,
+            rejection_reason: data.status === 'rejected' ? (data.rejectionReason || null) : null,
+            rejection_count: data.rejectionCount !== undefined ? data.rejectionCount : (prev.rejection_count || 0)
+          };
+        }
+        return prev;
+      });
     });
 
     return () => {
@@ -319,11 +360,46 @@ export default function AdminPage() {
           prev.filter((s) => !(s.player_id === playerId && s.tile_index === tileIndex))
         );
 
+        const cellFromResponse = data.grid?.find((g: any) => g.tile_index === tileIndex);
+        const resolvedApprovedAt = status === 'approved' 
+          ? (cellFromResponse?.approved_at || new Date().toISOString()) 
+          : null;
+
+        if (status === 'rejected') {
+          const subItem = submissions.find((s) => s.player_id === playerId && s.tile_index === tileIndex);
+          const cellItem = cellFromResponse || playerGrid.find((c) => c.tile_index === tileIndex) || inspectingCell;
+          const newRejectedItem: RejectedSubmission = {
+            player_id: playerId,
+            player_name: subItem?.player_name || selectedPlayer?.name || 'Player',
+            player_nickname: subItem?.player_nickname || selectedPlayer?.nickname,
+            player_department: subItem?.player_department || selectedPlayer?.department || '',
+            tile_index: tileIndex,
+            task_id: cellItem?.task_id || subItem?.task_id || 0,
+            task_title: cellItem?.task_title || subItem?.task_title || '',
+            task_description: cellItem?.task_description || subItem?.task_description || '',
+            task_type: cellItem?.task_type || subItem?.task_type || 'photo',
+            clue_image: cellItem?.clue_image || subItem?.clue_image || null,
+            image_path: cellItem?.image_path || subItem?.image_path || null,
+            text_answer: cellItem?.text_answer || subItem?.text_answer || null,
+            uploaded_at: cellItem?.uploaded_at || subItem?.uploaded_at || new Date().toISOString(),
+            rejection_reason: rejectionReason,
+            rejection_count: cellItem?.rejection_count || 1
+          };
+          setRejectedSubmissions((prev) => [newRejectedItem, ...prev.filter((r) => !(r.player_id === playerId && r.tile_index === tileIndex))]);
+        } else {
+          setRejectedSubmissions((prev) => prev.filter((r) => !(r.player_id === playerId && r.tile_index === tileIndex)));
+        }
+
         if (selectedPlayer && selectedPlayer.id === playerId) {
           setPlayerGrid((prev) =>
             prev.map((c) =>
               c.tile_index === tileIndex
-                ? { ...c, status, rejection_reason: status === 'rejected' ? rejectionReason : null }
+                ? { 
+                    ...c, 
+                    status, 
+                    approved_at: resolvedApprovedAt,
+                    rejection_reason: status === 'rejected' ? rejectionReason : null 
+                  }
                 : c
             )
           );
@@ -335,7 +411,12 @@ export default function AdminPage() {
         if (inspectingCell && inspectingCell.tile_index === tileIndex) {
           setInspectingCell((prev) =>
             prev
-              ? { ...prev, status, rejection_reason: status === 'rejected' ? rejectionReason : null }
+              ? { 
+                  ...prev, 
+                  status, 
+                  approved_at: resolvedApprovedAt,
+                  rejection_reason: status === 'rejected' ? rejectionReason : null 
+                }
               : null
           );
         }
@@ -687,20 +768,45 @@ export default function AdminPage() {
       {/* Main Split Screen */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         
-        {/* LEFT COLUMN: Approval Feed (Col span 7) */}
+        {/* LEFT COLUMN: Approval & Moderation Feed (Col span 7) */}
         <section className="lg:col-span-7 flex flex-col min-h-[500px]">
-          <div className="flex items-center justify-between mb-3 sm:mb-4 border-b-2 border-[#202028] pb-2.5 sm:pb-3 gap-2">
-            <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5 sm:gap-2 min-w-0">
-              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#FFDC47] flex-shrink-0" />
-              <span className="truncate">Pending Submissions</span>
-            </h2>
-            <span className="text-[10px] sm:text-xs px-2.5 py-1 rounded-full bg-[#FFDC47] text-black border border-black font-black shadow-neo-black-sm flex-shrink-0 whitespace-nowrap">
-              {submissions.length} Awaiting Review
+          {/* Feed Tab Switcher */}
+          <div className="flex flex-wrap items-center justify-between mb-3 sm:mb-4 border-b-2 border-[#202028] pb-2.5 sm:pb-3 gap-2">
+            <div className="p-1 bg-[#141418] rounded-full border-2 border-black flex items-center gap-1 shadow-neo-black-sm">
+              <button
+                type="button"
+                onClick={() => setFeedTab('pending')}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                  feedTab === 'pending'
+                    ? 'bg-[#FFDC47] text-black shadow-neo-black-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Pending ({submissions.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFeedTab('rejected')}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                  feedTab === 'rejected'
+                    ? 'bg-[#DF0586] text-white shadow-neo-black-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>Rejected ({rejectedSubmissions.length})</span>
+              </button>
+            </div>
+
+            <span className="text-[10px] sm:text-xs px-2.5 py-1 rounded-full bg-[#141418] border border-[#2A2A38] text-slate-300 font-bold shadow-neo-black-sm flex-shrink-0 whitespace-nowrap">
+              {feedTab === 'pending' ? `${submissions.length} Awaiting Review` : `${rejectedSubmissions.length} Rejected Records`}
             </span>
           </div>
 
           <div className="flex-1 flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-190px)] pr-1.5 pb-8">
-            {submissions.length === 0 ? (
+            {feedTab === 'pending' ? (
+              submissions.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#2A2A38] rounded-[32px] p-12 text-center bg-[#141418]/40 my-auto">
                 <div className="w-14 h-14 rounded-2xl bg-[#FFDC47] text-black flex items-center justify-center shadow-neo-black-sm mb-3">
                   <CheckCircle2 className="w-7 h-7 text-black" />
@@ -799,6 +905,12 @@ export default function AdminPage() {
                               ⚡ Retry Attempt (Final)
                             </span>
                           ) : null}
+                          {sub.uploaded_at && (
+                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#0B0B0E] border border-[#FFDC47]/40 text-[#FFDC47] font-bold flex items-center gap-1 shadow-neo-black-sm">
+                              <Clock className="w-3 h-3 text-[#FFDC47]" />
+                              <span>Submitted: {formatDateTime(sub.uploaded_at)}</span>
+                            </span>
+                          )}
                         </div>
 
                         {/* Task Title & Description */}
@@ -893,6 +1005,165 @@ export default function AdminPage() {
                   </div>
                 );
               })
+            )
+          ) : (
+              /* REJECTED SUBMISSIONS LIST */
+              rejectedSubmissions.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#2A2A38] rounded-[32px] p-12 text-center bg-[#141418]/40 my-auto">
+                  <div className="w-14 h-14 rounded-2xl bg-[#DF0586]/20 border-2 border-[#DF0586] text-[#DF0586] flex items-center justify-center shadow-neo-black-sm mb-3">
+                    <CheckCircle2 className="w-7 h-7 text-[#DF0586]" />
+                  </div>
+                  <h3 className="text-base font-black text-white">No Rejected Challenges</h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                    None of the participant submissions are currently rejected. Rejected items and moderator reasons will appear here.
+                  </p>
+                </div>
+              ) : (
+                rejectedSubmissions.map((rej) => {
+                  const processKey = `${rej.player_id}_${rej.tile_index}`;
+                  const isProcessing = processingId === processKey;
+
+                  return (
+                    <div
+                      key={processKey}
+                      className="bg-[#141418] border-2 border-[#DF0586]/60 hover:border-[#DF0586] rounded-[26px] p-4 sm:p-5 flex flex-col sm:flex-row gap-4 sm:gap-5 shadow-neo-black relative transition-all"
+                    >
+                      {/* Media / Text Answer / Clue Container */}
+                      <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+                        {/* Reference clue image if available */}
+                        {rej.clue_image && (
+                          <div
+                            onClick={() => setFullscreenImage(rej.clue_image || null)}
+                            className="w-full sm:w-36 h-32 sm:h-auto aspect-video sm:aspect-square rounded-2xl overflow-hidden border-2 border-black bg-black flex-shrink-0 cursor-pointer relative group/clue shadow-neo-black-sm"
+                            title="Click to zoom reference clue"
+                          >
+                            <img
+                              src={rej.clue_image}
+                              alt="Reference Clue"
+                              className="w-full h-full object-cover group-hover/clue:scale-105 transition-transform"
+                            />
+                            <span className="absolute top-1.5 left-1.5 bg-[#DF0586] text-white text-[9px] font-black px-2 py-0.5 rounded-full border border-black shadow-neo-black-sm flex items-center gap-1">
+                              <ImageIcon className="w-2.5 h-2.5" /> Clue Photo
+                            </span>
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/clue:opacity-100 transition-opacity flex items-center justify-center text-[10px] font-black text-[#FFDC47]">
+                              <Eye className="w-3.5 h-3.5 mr-1" /> Zoom Clue
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Contestant's Submission (Answer or Photo) */}
+                        {rej.task_type === 'question' || rej.text_answer ? (
+                          <div className="w-full sm:w-56 p-4 rounded-2xl border-2 border-black bg-[#0B0B0E] flex-shrink-0 flex flex-col justify-between shadow-neo-black-sm self-stretch sm:self-auto min-h-[120px]">
+                            <div>
+                              <div className="flex items-center gap-1.5 text-[#DF0586] text-[10px] font-black uppercase tracking-wider mb-2">
+                                <HelpCircle className="w-3.5 h-3.5" /> Rejected Answer
+                              </div>
+                              <p className="text-xs font-bold text-white whitespace-pre-wrap leading-relaxed line-clamp-6">
+                                &quot;{rej.text_answer || 'No answer recorded'}&quot;
+                              </p>
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-bold mt-2">Text Response Challenge</span>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => rej.image_path && setFullscreenImage(rej.image_path)}
+                            className="w-full sm:w-44 h-40 sm:h-auto aspect-video sm:aspect-[4/3] rounded-2xl overflow-hidden border-2 border-black bg-black flex-shrink-0 cursor-pointer relative group/img shadow-neo-black-sm self-start"
+                          >
+                            {rej.image_path ? (
+                              <img
+                                src={rej.image_path}
+                                alt="Rejected photo"
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover/img:scale-105"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xs text-slate-600 font-bold">
+                                No Photo
+                              </div>
+                            )}
+                            <span className="absolute top-1.5 left-1.5 bg-[#DF0586] text-white text-[9px] font-black px-2 py-0.5 rounded-full border border-black shadow-neo-black-sm">
+                              Rejected Photo
+                            </span>
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-xs font-black gap-1 text-[#FFDC47]">
+                              <Eye className="w-4 h-4" /> Fullscreen
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Meta & Details */}
+                      <div className="flex-1 flex flex-col justify-between min-w-0 gap-3">
+                        <div className="space-y-2.5">
+                          {/* Player name and details */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => handleInspectUserById(rej.player_id)}
+                              className="text-base font-black text-white hover:text-[#FFDC47] flex items-center gap-1 cursor-pointer truncate max-w-full"
+                            >
+                              <span>{rej.player_nickname || rej.player_name}</span>
+                              <ChevronRight className="w-4 h-4 text-[#FFDC47] flex-shrink-0" />
+                            </button>
+                            {rej.player_department ? (
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#20202C] border border-[#2E2E3E] font-bold text-slate-300">
+                                {rej.player_department}
+                              </span>
+                            ) : null}
+                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#DF0586] text-white border border-black font-black shadow-neo-black-sm">
+                              {rej.rejection_count >= 2 ? '⛔ Permanently Rejected' : `⚡ Retry ${rej.rejection_count} of 2`}
+                            </span>
+                          </div>
+
+                          {/* Task Title & Description */}
+                          <div>
+                            <h4 className="text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] text-white font-black bg-[#DF0586] px-2.5 py-0.5 rounded-full border border-black">
+                                {rej.task_type === 'question' ? 'Question #' : 'Tile #'}{rej.tile_index + 1}
+                              </span>
+                              <span className="truncate">{rej.task_title}</span>
+                            </h4>
+                            <p className="text-xs text-slate-400 mt-1 leading-relaxed">{rej.task_description}</p>
+                          </div>
+
+                          {/* REJECTION REASON CARD */}
+                          <div className="p-3.5 rounded-2xl bg-[#DF0586]/10 border-2 border-[#DF0586] space-y-1.5 shadow-neo-black-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-black text-[#DF0586] uppercase flex items-center gap-1 tracking-wider">
+                                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> Rejection Reason:
+                              </span>
+                              {rej.uploaded_at && (
+                                <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-[#FFDC47]" />
+                                  {formatDateTime(rej.uploaded_at)}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs font-bold text-white italic leading-relaxed whitespace-pre-wrap">
+                              &quot;{rej.rejection_reason || 'No specific reason entered.'}&quot;
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Card Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t-2 border-[#202028] mt-auto">
+                          <button
+                            onClick={() => handleAction(rej.player_id, rej.tile_index, 'approved')}
+                            disabled={isProcessing}
+                            className="px-5 py-2.5 rounded-full bg-[#10B981] hover:bg-[#059669] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-neo-black active:translate-y-0.5 transition-all disabled:opacity-50"
+                          >
+                            <Check className="w-4 h-4 text-black" />
+                            Overturn & Approve
+                          </button>
+                          <button
+                            onClick={() => handleInspectUserById(rej.player_id)}
+                            className="ml-auto text-xs text-[#FFDC47] hover:underline font-extrabold flex items-center gap-1 px-3 py-2 cursor-pointer"
+                          >
+                            <Grid className="w-3.5 h-3.5" /> Inspect Grid
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )
             )}
           </div>
         </section>
@@ -1248,6 +1519,84 @@ export default function AdminPage() {
             </div>
 
             <div className="p-5 space-y-4">
+              {/* Status & Timestamp Strip */}
+              <div className="p-3.5 rounded-2xl bg-[#0B0B0E] border-2 border-black shadow-neo-black-sm space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Status:</span>
+                  <div>
+                    {inspectingCell.status === 'not_started' && (
+                      <span className="text-[10px] font-black uppercase text-slate-400 bg-[#20202A] px-2.5 py-1 rounded-full">
+                        Not Started
+                      </span>
+                    )}
+                    {inspectingCell.status === 'pending' && (
+                      <span className="text-[10px] font-black text-black bg-[#FFDC47] px-2.5 py-1 rounded-full flex items-center gap-1 shadow-neo-black-sm">
+                        <Clock className="w-3 h-3" /> Under Review
+                      </span>
+                    )}
+                    {inspectingCell.status === 'approved' && (
+                      <span className="text-[10px] font-black text-black bg-[#10B981] px-2.5 py-1 rounded-full flex items-center gap-1 shadow-neo-black-sm">
+                        <Check className="w-3 h-3" /> Approved & Verified
+                      </span>
+                    )}
+                    {inspectingCell.status === 'rejected' && (
+                      <span className="text-[10px] font-black text-white bg-[#DF0586] px-2.5 py-1 rounded-full flex items-center gap-1 shadow-neo-black-sm">
+                        <X className="w-3 h-3" /> Rejected
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {(inspectingCell.uploaded_at || inspectingCell.approved_at) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-[#20202C]">
+                    {inspectingCell.uploaded_at && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <div className="w-6 h-6 rounded-full bg-[#FFDC47]/10 border border-[#FFDC47]/30 flex items-center justify-center flex-shrink-0 text-[#FFDC47]">
+                          <Clock className="w-3 h-3" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Submitted Time</span>
+                          <span className="text-xs font-bold text-white truncate block">{formatDateTime(inspectingCell.uploaded_at)}</span>
+                        </div>
+                      </div>
+                    )}
+                    {inspectingCell.approved_at && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <div className="w-6 h-6 rounded-full bg-[#10B981]/10 border border-[#10B981]/30 flex items-center justify-center flex-shrink-0 text-[#10B981]">
+                          <CheckCircle2 className="w-3 h-3" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Approved Time</span>
+                          <span className="text-xs font-bold text-[#10B981] truncate block">{formatDateTime(inspectingCell.approved_at)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Rejection Reason Alert (if tile is currently rejected) */}
+              {inspectingCell.status === 'rejected' && (
+                <div className="p-3.5 bg-[#DF0586]/10 border-2 border-[#DF0586] rounded-2xl text-white text-xs font-bold space-y-1.5 shadow-neo-black-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[#DF0586] font-black uppercase text-[10px] tracking-wider">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> Rejection Reason:
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#DF0586] text-white font-black">
+                      {inspectingCell.rejection_count >= 2 ? 'Permanently Rejected' : `Attempt ${inspectingCell.rejection_count} of 2`}
+                    </span>
+                  </div>
+                  <p className="italic text-white text-xs leading-relaxed whitespace-pre-wrap">
+                    &quot;{inspectingCell.rejection_reason || 'No specific reason entered.'}&quot;
+                  </p>
+                  <span className="text-[10px] text-slate-400 block pt-1 border-t border-[#DF0586]/20">
+                    {inspectingCell.rejection_count >= 2
+                      ? 'Maximum retry limit reached for this challenge.'
+                      : 'Contestant can retry this challenge 1 more time.'}
+                  </span>
+                </div>
+              )}
+
               {/* Reference Clue Photo (if task has one) */}
               {inspectingCell.clue_image && (
                 <div className="bg-[#0B0B0E] border-2 border-black rounded-2xl p-3 shadow-neo-black-sm space-y-2">

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPendingSubmissions, getLeaderboard } from '@/lib/db';
+import { getPendingSubmissions, getRejectedSubmissions, getLeaderboard } from '@/lib/db';
 import { isAuthorizedAdmin } from '@/lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
@@ -11,11 +11,13 @@ export async function GET(req: NextRequest) {
     }
 
     const pendingSubmissions = getPendingSubmissions();
+    const rejectedSubmissions = getRejectedSubmissions();
     const leaderboard = getLeaderboard();
 
     return NextResponse.json({
       success: true,
       pendingSubmissions,
+      rejectedSubmissions,
       leaderboard
     });
   } catch (error: any) {
