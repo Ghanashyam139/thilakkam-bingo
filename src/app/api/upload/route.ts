@@ -63,11 +63,23 @@ export async function POST(req: NextRequest) {
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
 
-      const ext = path.extname(file.name) || '.jpg';
-      const filename = `${playerId}_tile_${tileIndex}_${Date.now()}${ext}`;
-      const uploadPath = path.join(process.cwd(), 'public', 'uploads', filename);
+      let ext = path.extname(file.name).toLowerCase();
+      if (file.type === 'image/jpeg' && ext !== '.jpg' && ext !== '.jpeg') {
+        ext = '.jpg';
+      } else if (file.type === 'image/png' && ext !== '.png') {
+        ext = '.png';
+      } else if (file.type === 'image/webp' && ext !== '.webp') {
+        ext = '.webp';
+      } else if (!ext) {
+        ext = '.jpg';
+      }
 
-      await fs.writeFile(uploadPath, buffer);
+      const filename = `${playerId}_tile_${tileIndex}_${Date.now()}${ext}`;
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+      await fs.mkdir(uploadsDir, { recursive: true, mode: 0o755 });
+      const uploadPath = path.join(uploadsDir, filename);
+
+      await fs.writeFile(uploadPath, buffer, { mode: 0o644 });
       dbImagePath = `/uploads/${filename}`;
     }
 

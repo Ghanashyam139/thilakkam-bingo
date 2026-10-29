@@ -261,9 +261,122 @@ const syncTx = db.transaction((tasks) => {
 syncTx(THILAKKAM_ANNUAL_DAY_TASKS);
 db.close();
 
+function detectFileMime(filePath) {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(16);
+    fs.readSync(fd, buf, 0, 16, 0);
+    fs.closeSync(fd);
+
+    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return "image/jpeg";
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return "image/png";
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return "image/webp";
+  } catch (_) {}
+
+  const ext = path.extname(filePath).toLowerCase();
+  const MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml"
+  };
+  return MIME_TYPES[ext] || "application/octet-stream";
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
+    const pathname = parsedUrl.pathname || "";
+
+    // 1. Direct static serving for user uploaded photos
+    if (pathname.startsWith("/uploads/")) {
+      const filename = path.basename(decodeURIComponent(pathname));
+      const possibleUploadPaths = [
+        path.join(uploadsDir, filename),
+        path.join(__dirname, "public", "uploads", filename),
+        path.join(process.cwd(), "public", "uploads", filename),
+        path.join(process.cwd(), "uploads", filename),
+        path.join(__dirname, "uploads", filename)
+      ];
+
+      let foundUploadPath = null;
+      for (const p of possibleUploadPaths) {
+        if (fs.existsSync(p)) {
+          foundUploadPath = p;
+          break;
+        }
+      }
+
+      if (foundUploadPath) {
+        try {
+          const stat = fs.statSync(foundUploadPath);
+          const contentType = detectFileMime(foundUploadPath);
+
+          res.writeHead(200, {
+            "Content-Type": contentType,
+            "Content-Length": stat.size,
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Access-Control-Allow-Origin": "*"
+          });
+
+          const stream = fs.createReadStream(foundUploadPath);
+          stream.pipe(res);
+          return;
+        } catch (err) {
+          console.error("Error streaming upload:", err);
+        }
+      }
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("File not found");
+      return;
+    }
+
+    // 2. Direct static serving for task clue images
+    if (pathname.startsWith("/clues/")) {
+      const filename = path.basename(decodeURIComponent(pathname));
+      const possibleCluePaths = [
+        path.join(process.cwd(), "public", "clues", filename),
+        path.join(__dirname, "public", "clues", filename),
+        path.join(process.cwd(), "clues", filename),
+        path.join(__dirname, "clues", filename)
+      ];
+
+      let foundCluePath = null;
+      for (const p of possibleCluePaths) {
+        if (fs.existsSync(p)) {
+          foundCluePath = p;
+          break;
+        }
+      }
+
+      if (foundCluePath) {
+        try {
+          const stat = fs.statSync(foundCluePath);
+          const contentType = detectFileMime(foundCluePath);
+
+          res.writeHead(200, {
+            "Content-Type": contentType,
+            "Content-Length": stat.size,
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Access-Control-Allow-Origin": "*"
+          });
+
+          const stream = fs.createReadStream(foundCluePath);
+          stream.pipe(res);
+          return;
+        } catch (err) {
+          console.error("Error streaming clue:", err);
+        }
+      }
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("File not found");
+      return;
+    }
+
     handle(req, res, parsedUrl);
   });
 
